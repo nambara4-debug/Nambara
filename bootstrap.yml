@@ -2,9 +2,6 @@ name: Preparar projecto Morphe
 
 on:
   push:
-    paths:
-      - smartlauncher-force60-project.zip
-      - .github/workflows/bootstrap.yml
   workflow_dispatch:
 
 permissions:
@@ -14,8 +11,8 @@ jobs:
   preparar:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - name: Extrair projecto e criar commit
+      - uses: actions/checkout@v4
+      - name: Extrair projecto
         run: |
           unzip -o smartlauncher-force60-project.zip
           rm -f smartlauncher-force60-project.zip
