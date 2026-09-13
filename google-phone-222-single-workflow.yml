@@ -1,0 +1,167 @@
+name: Compilar Google Phone 222 - Gravação
+
+on:
+  workflow_dispatch:
+  push:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  compilar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Obter base Morphe
+        uses: actions/checkout@v4
+        with:
+          repository: arandomhooman/hoomans-morphe-patches
+          ref: b88a27054e2bda779442235708ddc5e2ee760a50
+          path: morphe-base
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Criar patches Google Phone 222
+        shell: bash
+        run: |
+          rm -rf morphe-base/patches/src/main/kotlin
+          rm -rf morphe-base/patches/src/main/resources
+          rm -rf morphe-base/extensions/twitch
+          mkdir -p morphe-base/patches/src/main/kotlin/nambara/morphe/patches/googlephone
+
+          cat > morphe-base/patches/src/main/kotlin/nambara/morphe/patches/googlephone/Phone222Patches.kt <<'KOTLIN'
+          package nambara.morphe.patches.googlephone
+
+          import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
+          import app.morphe.patcher.patch.AppTarget
+          import app.morphe.patcher.patch.Compatibility
+          import app.morphe.patcher.patch.PatchException
+          import app.morphe.patcher.patch.bytecodePatch
+
+          private val googlePhone222Compatibility = Compatibility(
+              name = "Google Phone",
+              packageName = "com.google.android.dialer",
+              appIconColor = 0x1A73E8,
+              targets = listOf(
+                  AppTarget("222.0.916975595"),
+              ),
+          )
+
+          @Suppress("unused")
+          val enableCallRecording222Patch = bytecodePatch(
+              name = "Enable call recording (Google Phone 222)",
+              description = "Enables the built-in Google Phone call recorder on version 222.0.916975595 by " +
+                  "bypassing the client-side country availability gate.",
+          ) {
+              compatibleWith(googlePhone222Compatibility)
+
+              execute {
+                  val canRecord = classDefByStrings(
+                      "Call recording is disabled in the current country",
+                  ).singleOrNull()
+                      ?: throw PatchException(
+                          "Google Phone 222: CanRecord class not found or ambiguous.",
+                      )
+
+                  val mutableCanRecord = mutableClassDefBy(canRecord)
+
+                  val availability = mutableCanRecord.methods.filter { method ->
+                      method.returnType == "Z" && method.parameterTypes.isEmpty()
+                  }
+
+                  if (availability.size != 1) {
+                      throw PatchException(
+                          "Google Phone 222: expected one no-arg boolean CanRecord method, found " +
+                              "${availability.size}.",
+                      )
+                  }
+
+                  availability.single().addInstructions(
+                      0,
+                      """
+                          const/4 v0, 0x1
+                          return v0
+                      """,
+                  )
+              }
+          }
+
+          @Suppress("unused")
+          val enableAutomaticCallRecording222Patch = bytecodePatch(
+              name = "Enable automatic call recording (Google Phone 222)",
+              description = "Unlocks the automatic call-recording availability gate on Google Phone " +
+                  "222.0.916975595. It also applies the manual call-recording patch as a dependency.",
+          ) {
+              dependsOn(enableCallRecording222Patch)
+              compatibleWith(googlePhone222Compatibility)
+
+              execute {
+                  val geofence = classDefByStrings(
+                      "withinCallRecordingGeoFence",
+                  ).singleOrNull()
+                      ?: throw PatchException(
+                          "Google Phone 222: call-recording Geofence class not found or ambiguous.",
+                      )
+
+                  val mutableGeofence = mutableClassDefBy(geofence)
+
+                  val withinGeofence = mutableGeofence.methods.filter { method ->
+                      method.returnType == "Z" && method.parameterTypes.isEmpty()
+                  }
+
+                  if (withinGeofence.size != 1) {
+                      throw PatchException(
+                          "Google Phone 222: expected one no-arg boolean Geofence method, found " +
+                              "${withinGeofence.size}.",
+                      )
+                  }
+
+                  withinGeofence.single().addInstructions(
+                      0,
+                      """
+                          const/4 v0, 0x1
+                          return v0
+                      """,
+                  )
+              }
+          }
+          KOTLIN
+
+          cat > morphe-base/patches/build.gradle.kts <<'GRADLE'
+          group = "io.github.nambara4debug"
+
+          patches {
+              about {
+                  name = "Nambara Google Phone 222"
+                  description = "Patches de gravação para Google Phone 222.0.916975595."
+                  source = "https://github.com/nambara4-debug/Nambara"
+                  author = "nambara4-debug"
+                  contact = "GitHub"
+                  website = "https://github.com/nambara4-debug/Nambara"
+                  license = "GPLv3"
+              }
+          }
+          GRADLE
+
+          sed -i -E 's/^version = .*/version = 1.0.0/' morphe-base/gradle.properties
+
+      - name: Compilar MPP
+        working-directory: morphe-base
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./gradlew :patches:buildAndroid --no-daemon
+
+      - name: Guardar MPP
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-phone-222-recording-mpp
+          path: morphe-base/patches/build/libs/*.mpp
+          if-no-files-found: error
